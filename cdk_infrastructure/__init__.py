@@ -42,74 +42,6 @@ class CDCStack(Stack):
             auto_delete_objects=True,
         )
 
-
-        # self.load_data_to_rds_lambda = _lambda.Function(
-        #     self,
-        #     "LoadDataToRDSLambda",
-        #     runtime=_lambda.Runtime.PYTHON_3_9,
-        #     code=_lambda.Code.from_asset(
-        #         "source/load_data_to_rds_lambda",
-        #         exclude=[".venv/*"],
-        #     ),
-        #     handler="handler.lambda_handler",
-        #     timeout=Duration.seconds(3),  # should be fairly quick
-        #     memory_size=128,  # in MB
-        # )
-
-
-        self.load_data_to_dynamodb_lambda = _lambda.Function(
-            self,
-            "LoadDataToDynamoDBLambda",
-            runtime=_lambda.Runtime.PYTHON_3_9,
-            code=_lambda.Code.from_asset(
-                "source/load_data_to_dynamodb_lambda",
-                # exclude=[".venv/*", "tests/*"],  # seems to no longer do anything if use BundlingOptions
-                bundling=BundlingOptions(
-                    image=_lambda.Runtime.PYTHON_3_9.bundling_image,
-                    command=[
-                        "bash",
-                        "-c",
-                        " && ".join(
-                            [
-                                "pip install -r requirements.txt -t /asset-output",
-                                "cp handler.py /asset-output",  # need to cp instead of mv
-                                # "cp -au . /asset-output",  # or cp everything
-                            ]
-                        ),
-                    ],
-                ),
-            ),
-            handler="handler.lambda_handler",
-            timeout=Duration.seconds(3),  # should be fairly quick
-            memory_size=128,  # in MB
-        )
-
-
-        self.process_dynamodb_stream_lambda = _lambda.Function(
-            self,
-            "ProcessDynamoDBStreamLambda",
-            runtime=_lambda.Runtime.PYTHON_3_9,
-            code=_lambda.Code.from_asset(
-                "source/process_dynamodb_stream_lambda",
-                exclude=[".venv/*"],
-            ),
-            handler="handler.lambda_handler",
-            timeout=Duration.seconds(3),  # should be fairly quick
-            memory_size=128,  # in MB
-            environment={  # apparently "AWS_REGION" is not allowed as a Lambda env variable
-                "AWSREGION": environment["AWS_REGION"],
-            },
-        )
-
-
-        self.scheduled_eventbridge_event = events.Rule(
-            self,
-            "RunEvery5Minutes",
-            event_bus=None,  # scheduled events must be on "default" bus
-            schedule=events.Schedule.rate(Duration.minutes(5)),
-        )
-
-
         self.redshift_cluster_role = iam.Role(
             self,
             "RedshiftClusterRole",
@@ -133,11 +65,84 @@ class CDCStack(Stack):
             #     quicksight_to_redshift_sg.security_group_id]
         )
 
+        # stateless resources
+        # self.load_data_to_rds_lambda = _lambda.Function(
+        #     self,
+        #     "LoadDataToRDSLambda",
+        #     runtime=_lambda.Runtime.PYTHON_3_9,
+        #     code=_lambda.Code.from_asset(
+        #         "source/load_data_to_rds_lambda",
+        #         exclude=[".venv/*"],
+        #     ),
+        #     handler="handler.lambda_handler",
+        #     timeout=Duration.seconds(3),  # should be fairly quick
+        #     memory_size=128,  # in MB
+        # )
 
+
+        self.load_data_to_dynamodb_lambda = _lambda.Function(
+            self,
+            "LoadDataToDynamoDBLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset(
+                "source/load_data_to_dynamodb_lambda",
+                exclude=[".venv/*", "tests/*"],  # seems to no longer do anything if use BundlingOptions
+            ),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(3),  # should be fairly quick
+            memory_size=128,  # in MB
+        )
+        self.process_dynamodb_stream_lambda = _lambda.Function(
+            self,
+            "ProcessDynamoDBStreamLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset(
+                "source/process_dynamodb_stream_lambda",
+                exclude=[".venv/*"],
+            ),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(3),  # should be fairly quick
+            memory_size=128,  # in MB
+            environment={  # apparently "AWS_REGION" is not allowed as a Lambda env variable
+                "AWSREGION": environment["AWS_REGION"],
+            },
+        )
+        self.load_s3_files_from_dynamodb_stream_to_redshift_lambda = _lambda.Function(
+            self,
+            "LoadS3FilesFromDynamoDBStreamToRedshiftLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset(
+                "source/load_s3_files_from_dynamodb_stream_to_redshift_lambda",
+                exclude=[".venv/*"],
+            ),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(3),  # should be fairly quick
+            memory_size=128,  # in MB
+            environment={  # apparently "AWS_REGION" is not allowed as a Lambda env variable
+                "AWSREGION": environment["AWS_REGION"],
+            },
+        )
+
+        self.scheduled_eventbridge_event = events.Rule(
+            self,
+            "RunEvery5Minutes",
+            event_bus=None,  # scheduled events must be on "default" bus
+            schedule=events.Schedule.rate(Duration.minutes(5)),
+        )
 
 
 
         # connect the AWS resources
+        self.scheduled_eventbridge_event.add_target(
+            target=events_targets.LambdaFunction(
+                handler=self.load_data_to_dynamodb_lambda, retry_attempts=3,
+                ### then put in DLQ
+            ),
+        )
+        self.dynamodb_table.grant_write_data(self.load_data_to_dynamodb_lambda)
+        self.load_data_to_dynamodb_lambda.add_environment(
+            key="DYNAMODB_TABLE_NAME", value=self.dynamodb_table.table_name
+        )
         self.process_dynamodb_stream_lambda.add_event_source(
             event_sources.DynamoEventSource(self.dynamodb_table,
             starting_position=_lambda.StartingPosition.LATEST,
@@ -148,6 +153,19 @@ class CDCStack(Stack):
             value=self.cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
         )
         self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_write(self.process_dynamodb_stream_lambda)
+
+        self.load_s3_files_from_dynamodb_stream_to_redshift_lambda.add_environment(
+            key="REDSHIFT_CLUSTER_NAME",
+            value=self.redshift_cluster.attr_id,
+        )
+        self.load_s3_files_from_dynamodb_stream_to_redshift_lambda.add_environment(
+            key="S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
+            value=self.cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
+        )
+        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_read(
+            self.load_s3_files_from_dynamodb_stream_to_redshift_lambda
+        )
+
 
         # self.scheduled_eventbridge_event.add_target(
         #     target=events_targets.LambdaFunction(
