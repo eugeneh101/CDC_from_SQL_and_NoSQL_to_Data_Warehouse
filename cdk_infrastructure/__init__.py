@@ -2,13 +2,16 @@ from aws_cdk import (
     BundlingOptions,
     Duration,
     RemovalPolicy,
+    SecretValue,
     Stack,
     aws_dynamodb as dynamodb,
+    aws_ec2 as ec2,
     aws_events as events,
     aws_events_targets as events_targets,
     aws_iam as iam,
     aws_lambda as _lambda,
     aws_lambda_event_sources as event_sources,
+    aws_rds as rds,
     aws_redshift as redshift,
     aws_s3 as s3,
 )
@@ -26,7 +29,7 @@ class CDCStack(Stack):
         # stateful resources
         self.dynamodb_table = dynamodb.Table(
             self,
-            "DynamoDBToRedshift",
+            "DynamoDBTableToCDCToRedshift",
             partition_key=dynamodb.Attribute(
                 name="id", type=dynamodb.AttributeType.STRING
             ),
@@ -35,12 +38,41 @@ class CDCStack(Stack):
             # (as DynamoDB is a stateful resource) unless explicitly specified by the following line
             removal_policy=RemovalPolicy.DESTROY,
         )
-
         self.cdc_from_dynamodb_to_redshift_s3_bucket = s3.Bucket(
-            self, "DynamoDBToRedshiftS3Bucket",
+            self, "DynamoDBStreamToRedshiftS3Bucket",
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
         )
+
+        self.default_vpc = ec2.Vpc.from_lookup(self, "VPC", is_default=True)
+        self.default_security_group = ec2.SecurityGroup.from_lookup_by_name(
+            self, "DefaultSecurityGroup", security_group_name="default", vpc=self.default_vpc
+        )
+        self.rds_instance = rds.DatabaseInstance(
+            self,
+            "RDSToCDCToRedshift",
+            engine=rds.DatabaseInstanceEngine.mysql(version=rds.MysqlEngineVersion.VER_8_0_28),
+            # optional, defaults to m5.large
+            instance_type=ec2.InstanceType("t3.micro"),  # for demo purposes
+            # ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.MICRO),
+            credentials=rds.Credentials.from_username(
+                username="admin", password=SecretValue.unsafe_plain_text("password")  ### hard coded
+            ),
+            database_name="rds_to_redshift_database",  ### hard coded
+            port=3306,  ### hard coded
+            vpc=self.default_vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # will have to figure out VPC
+            security_groups=[
+                self.default_security_group,
+                # ec2.SecurityGroup.from_security_group_id(
+                #     self, "DefaultSecurityGroup", security_group_id="sg-3e224941"  ### replace with code
+                # ),
+            ],
+            publicly_accessible=True,  # will have to figure out VPC
+            removal_policy=RemovalPolicy.DESTROY,
+            delete_automated_backups=True,
+        )
+
 
         self.redshift_full_commands_full_access_role = iam.Role(
             self,
@@ -66,20 +98,6 @@ class CDCStack(Stack):
         )
 
         # stateless resources
-        # self.load_data_to_rds_lambda = _lambda.Function(
-        #     self,
-        #     "LoadDataToRDSLambda",
-        #     runtime=_lambda.Runtime.PYTHON_3_9,
-        #     code=_lambda.Code.from_asset(
-        #         "source/load_data_to_rds_lambda",
-        #         exclude=[".venv/*"],
-        #     ),
-        #     handler="handler.lambda_handler",
-        #     timeout=Duration.seconds(3),  # should be fairly quick
-        #     memory_size=128,  # in MB
-        # )
-
-
         self.load_data_to_dynamodb_lambda = _lambda.Function(
             self,
             "LoadDataToDynamoDBLambda",
@@ -133,14 +151,41 @@ class CDCStack(Stack):
             role=self.lambda_redshift_full_access_role,
         )
 
+
+        self.load_data_to_rds_lambda = _lambda.Function(
+            self,
+            "LoadDataToRDSLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset(
+                "source/load_data_to_rds_lambda",
+                # exclude=[".venv/*"],  # seems to no longer do anything if use BundlingOptions
+                bundling=BundlingOptions(
+                    image=_lambda.Runtime.PYTHON_3_9.bundling_image,
+                    command=[
+                        "bash",
+                        "-c",
+                        " && ".join(
+                            [
+                                "pip install -r requirements.txt -t /asset-output",
+                                "cp handler.py txns.csv /asset-output",  # need to cp instead of mv
+                                # "cp -au . /asset-output",  # or cp everything
+                            ]
+                        ),
+                    ],
+                ),
+            ),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(3),  # should be fairly quick
+            memory_size=128,  # in MB
+        )
+
+
         self.scheduled_eventbridge_event = events.Rule(
             self,
             "RunEvery5Minutes",
             event_bus=None,  # scheduled events must be on "default" bus
             schedule=events.Schedule.rate(Duration.minutes(5)),
         )
-
-
 
         # connect the AWS resources
         self.scheduled_eventbridge_event.add_target(
@@ -184,4 +229,14 @@ class CDCStack(Stack):
         )
         self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_read_write(
             self.load_s3_files_from_dynamodb_stream_to_redshift_lambda
+        )
+
+        self.scheduled_eventbridge_event.add_target(
+            target=events_targets.LambdaFunction(
+                handler=self.load_data_to_rds_lambda, retry_attempts=3,
+                ### then put in DLQ
+            ),
+        )
+        self.load_data_to_rds_lambda.add_environment(
+            key="RDS_HOST", value=self.rds_instance.db_instance_endpoint_address
         )
