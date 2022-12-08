@@ -42,24 +42,24 @@ class CDCStack(Stack):
             auto_delete_objects=True,
         )
 
-        self.redshift_cluster_role = iam.Role(
+        self.redshift_full_access_role = iam.Role(
             self,
             "RedshiftClusterRole",
             assumed_by=iam.ServicePrincipal("redshift.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftAllCommandsFullAccess")  # later principle of least privileges
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftFullAccess")  ### later principle of least privileges
                 ],
         )
-        self.redshift_cluster = redshift.CfnCluster(  # refactor as its own Construct
+        self.redshift_cluster = redshift.CfnCluster(  ### refactor as its own Construct
             self,
-            "RedshiftClsuter",
+            "RedshiftCluster",
             cluster_type="single-node",  # for demo purposes
             number_of_nodes=1,  # for demo purposes
             node_type="dc2.large",  # for demo purposes
             db_name="redshift_database",  ### hard coded
             master_username="admin",  ### hard coded
             master_user_password="Password1",  ### hard coded
-            iam_roles=[self.redshift_cluster_role.role_arn],
+            iam_roles=[self.redshift_full_access_role.role_arn],
             # cluster_subnet_group_name=demo_cluster_subnet_group.ref,
             # vpc_security_group_ids=[
             #     quicksight_to_redshift_sg.security_group_id]
@@ -107,6 +107,14 @@ class CDCStack(Stack):
                 "AWSREGION": environment["AWS_REGION"],
             },
         )
+        self.lambda_redshift_full_access_role = iam.Role(
+            self,
+            "LambdaRedshiftFullAccessRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftFullAccess")  ### later principle of least privileges
+                ],
+        )
         self.load_s3_files_from_dynamodb_stream_to_redshift_lambda = _lambda.Function(
             self,
             "LoadS3FilesFromDynamoDBStreamToRedshiftLambda",
@@ -116,11 +124,12 @@ class CDCStack(Stack):
                 exclude=[".venv/*"],
             ),
             handler="handler.lambda_handler",
-            timeout=Duration.seconds(3),  # should be fairly quick
+            timeout=Duration.seconds(10),  # may take some time if many files
             memory_size=128,  # in MB
             environment={  # apparently "AWS_REGION" is not allowed as a Lambda env variable
                 "AWSREGION": environment["AWS_REGION"],
             },
+            role=self.lambda_redshift_full_access_role,
         )
 
         self.scheduled_eventbridge_event = events.Rule(
@@ -154,9 +163,15 @@ class CDCStack(Stack):
         )
         self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_write(self.process_dynamodb_stream_lambda)
 
+        self.scheduled_eventbridge_event.add_target(
+            target=events_targets.LambdaFunction(
+                handler=self.load_s3_files_from_dynamodb_stream_to_redshift_lambda, retry_attempts=3,
+                ### then put in DLQ
+            ),
+        )
         self.load_s3_files_from_dynamodb_stream_to_redshift_lambda.add_environment(
-            key="REDSHIFT_CLUSTER_NAME",
-            value=self.redshift_cluster.attr_id,
+            key="REDSHIFT_ENDPOINT_ADDRESS",
+            value=self.redshift_cluster.attr_endpoint_address,  # appears self.redshift_cluster.attr_id is broken
         )
         self.load_s3_files_from_dynamodb_stream_to_redshift_lambda.add_environment(
             key="S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
@@ -165,11 +180,3 @@ class CDCStack(Stack):
         self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_read(
             self.load_s3_files_from_dynamodb_stream_to_redshift_lambda
         )
-
-
-        # self.scheduled_eventbridge_event.add_target(
-        #     target=events_targets.LambdaFunction(
-        #         handler=self.vrf_request_lambda, retry_attempts=3,
-        #         ### then put in DLQ
-        #     ),
-        # )
