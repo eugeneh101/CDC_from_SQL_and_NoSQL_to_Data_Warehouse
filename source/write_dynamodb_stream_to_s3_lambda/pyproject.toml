@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "process_dynamodb_stream_lambda"
+name = "write_dynamodb_stream_to_s3_lambda"
 version = "0.1.0"
 description = ""
 authors = ["Eugene"]
