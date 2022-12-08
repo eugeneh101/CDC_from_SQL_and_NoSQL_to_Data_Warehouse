@@ -42,13 +42,13 @@ class CDCStack(Stack):
             auto_delete_objects=True,
         )
 
-        self.redshift_full_access_role = iam.Role(
+        self.redshift_full_commands_full_access_role = iam.Role(
             self,
             "RedshiftClusterRole",
             assumed_by=iam.ServicePrincipal("redshift.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftFullAccess")  ### later principle of least privileges
-                ],
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftAllCommandsFullAccess"),  ### later principle of least privileges
+            ],
         )
         self.redshift_cluster = redshift.CfnCluster(  ### refactor as its own Construct
             self,
@@ -59,7 +59,7 @@ class CDCStack(Stack):
             db_name="redshift_database",  ### hard coded
             master_username="admin",  ### hard coded
             master_user_password="Password1",  ### hard coded
-            iam_roles=[self.redshift_full_access_role.role_arn],
+            iam_roles=[self.redshift_full_commands_full_access_role.role_arn],
             # cluster_subnet_group_name=demo_cluster_subnet_group.ref,
             # vpc_security_group_ids=[
             #     quicksight_to_redshift_sg.security_group_id]
@@ -92,12 +92,12 @@ class CDCStack(Stack):
             timeout=Duration.seconds(3),  # should be fairly quick
             memory_size=128,  # in MB
         )
-        self.process_dynamodb_stream_lambda = _lambda.Function(
+        self.write_dynamodb_stream_to_s3_lambda = _lambda.Function(
             self,
-            "ProcessDynamoDBStreamLambda",
+            "WriteDynamoDBStreamToS3Lambda",
             runtime=_lambda.Runtime.PYTHON_3_9,
             code=_lambda.Code.from_asset(
-                "source/process_dynamodb_stream_lambda",
+                "source/write_dynamodb_stream_to_s3_lambda",
                 exclude=[".venv/*"],
             ),
             handler="handler.lambda_handler",
@@ -112,8 +112,9 @@ class CDCStack(Stack):
             "LambdaRedshiftFullAccessRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftFullAccess")  ### later principle of least privileges
-                ],
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftFullAccess"),  ### later principle of least privileges
+            ],
         )
         self.load_s3_files_from_dynamodb_stream_to_redshift_lambda = _lambda.Function(
             self,
@@ -152,16 +153,16 @@ class CDCStack(Stack):
         self.load_data_to_dynamodb_lambda.add_environment(
             key="DYNAMODB_TABLE_NAME", value=self.dynamodb_table.table_name
         )
-        self.process_dynamodb_stream_lambda.add_event_source(
+        self.write_dynamodb_stream_to_s3_lambda.add_event_source(
             event_sources.DynamoEventSource(self.dynamodb_table,
             starting_position=_lambda.StartingPosition.LATEST,
             # filters=[{"event_name": _lambda.FilterRule.is_equal("INSERT")}]
         ))
-        self.process_dynamodb_stream_lambda.add_environment(
+        self.write_dynamodb_stream_to_s3_lambda.add_environment(
             key="S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
             value=self.cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
         )
-        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_write(self.process_dynamodb_stream_lambda)
+        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_write(self.write_dynamodb_stream_to_s3_lambda)
 
         self.scheduled_eventbridge_event.add_target(
             target=events_targets.LambdaFunction(
@@ -174,9 +175,13 @@ class CDCStack(Stack):
             value=self.redshift_cluster.attr_endpoint_address,  # appears self.redshift_cluster.attr_id is broken
         )
         self.load_s3_files_from_dynamodb_stream_to_redshift_lambda.add_environment(
+            key="REDSHIFT_ROLE_ARN",
+            value=self.redshift_full_commands_full_access_role.role_arn,
+        )
+        self.load_s3_files_from_dynamodb_stream_to_redshift_lambda.add_environment(
             key="S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
             value=self.cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
         )
-        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_read(
+        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_read_write(
             self.load_s3_files_from_dynamodb_stream_to_redshift_lambda
         )
