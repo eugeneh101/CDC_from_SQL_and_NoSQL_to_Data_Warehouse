@@ -7,6 +7,7 @@ RDS_HOST = os.environ["RDS_HOST"]
 RDS_USER = "admin"  ### hard coded
 RDS_PASSWORD = "password"  ### hard coded
 RDS_DATABASE_NAME = "rds_to_redshift_database"  ### hard coded
+RDS_TABLE_NAME = "rds_cdc_table"
 
 
 def lambda_handler(event, context):
@@ -18,14 +19,16 @@ def lambda_handler(event, context):
         csv_data = [tuple(row) for row in csv_reader]
         # print(csv_data)
         cursor.execute(
-            "CREATE TABLE if not exists rds_cdc_table ({column_name_and_types});".format(
-                column_name_and_types=", ".join(f"{column_name} varchar(40)" for column_name in column_names)
+            "CREATE TABLE if not exists {rds_table_name} ({column_name_and_types});".format(
+                rds_table_name=RDS_TABLE_NAME,
+                column_name_and_types=", ".join(f"{column_name} varchar(40)" for column_name in column_names),
             )  # did not define a primary key
         )
         conn.commit()
         cursor.executemany("""
-            INSERT INTO rds_cdc_table ({column_names})
+            INSERT INTO {rds_table_name} ({column_names})
             VALUES ({column_types});""".format(
+                rds_table_name=RDS_TABLE_NAME,
                 column_names=", ".join(column_names),
                 column_types=", ".join(["%s"] * len(column_names)),
             ),
