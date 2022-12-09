@@ -4,6 +4,7 @@ from aws_cdk import (
     RemovalPolicy,
     SecretValue,
     Stack,
+    aws_dms as dms,
     aws_dynamodb as dynamodb,
     aws_ec2 as ec2,
     aws_events as events,
@@ -44,9 +45,19 @@ class CDCStack(Stack):
             auto_delete_objects=True,
         )
 
-        self.default_vpc = ec2.Vpc.from_lookup(self, "VPC", is_default=True)
-        self.default_security_group = ec2.SecurityGroup.from_lookup_by_name(
-            self, "DefaultSecurityGroup", security_group_name="default", vpc=self.default_vpc
+        self.default_vpc = ec2.Vpc.from_lookup(self, "DefaultVPC", is_default=True)
+        # self.default_security_group = ec2.SecurityGroup.from_lookup_by_name(
+        #     self, "DefaultSecurityGroup", security_group_name="default", vpc=self.default_vpc
+        # )
+        self.security_group_for_rds = ec2.SecurityGroup(
+            self,
+            "SecurityGroupForRDS",
+            vpc=self.default_vpc,
+            allow_all_outbound=True,
+            )
+        self.security_group_for_rds.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(3306),
         )
         self.rds_instance = rds.DatabaseInstance(
             self,
@@ -63,7 +74,8 @@ class CDCStack(Stack):
             vpc=self.default_vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # will have to figure out VPC
             security_groups=[
-                self.default_security_group,
+                self.security_group_for_rds,
+                # self.default_security_group,
                 # ec2.SecurityGroup.from_security_group_id(
                 #     self, "DefaultSecurityGroup", security_group_id="sg-3e224941"  ### replace with code
                 # ),
@@ -96,6 +108,37 @@ class CDCStack(Stack):
             # vpc_security_group_ids=[
             #     quicksight_to_redshift_sg.security_group_id]
         )
+
+
+
+        self.dms_rds_source_endpoint = dms.CfnEndpoint(
+            self,
+            "RDSSourceEndpoint",
+            endpoint_type="source",
+            engine_name="mysql",
+            server_name=self.rds_instance.db_instance_endpoint_address,
+            port=3306,
+            username="admin",
+            password="password",
+        )
+        self.dms_rds_source_endpoint = dms.CfnEndpoint(
+            self,
+            "RedshiftTargetEndpoint",
+            endpoint_type="target",
+            engine_name="redshift",
+            database_name="redshift_database",
+            server_name=self.redshift_cluster.attr_endpoint_address,
+            port=5439,
+            username="admin",
+            password="Password1",
+        )
+        self.dms_replication_instance = dms.CfnReplicationInstance(
+            self,
+            "DMSReplicationInstance",
+            replication_instance_class="dms.t3.micro",  # for demo purposes
+            vpc_security_group_ids=["sg-3e224941"],
+        )
+
 
         # stateless resources
         self.load_data_to_dynamodb_lambda = _lambda.Function(
