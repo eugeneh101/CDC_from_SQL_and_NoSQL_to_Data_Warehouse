@@ -7,6 +7,7 @@ Suppose you are ingesting large amounts of data into SQL and NoSQL. You got big 
 # Architecture
 <p align="center"><img src="arch_diagram.jpg" width="800"></p>
 The architecture diagram looks quick intense. The core idea is quite simple: there are 3 databases: SQL (RDS with MySQL), NoSQL (DynamoDB), and data warehouse (Redshift). Here are the moving parts:
+
 * Every 5 minutes, Eventbridge triggers a Lambda to load `txns.csv` to RDS. Since I defined the table with no primary key/uniqueness restriction, the table gets appended. AWS DMS (data migration service) task is synchronize the data from RDS to Redshift via CDC.
 * Every 5 minutes, Eventbridge triggers a Lambda to load `trades.json` to DynamoDB. Any INSERTS or UPDATES triggers DynamoDB stream to trigger another separate Lambda that will write those new records into a file stored in an S3 bucket. Every 5 minutes, another Lambda will load files from the S3 bucket to the Redshift cluster, then delete the files.
 
@@ -25,6 +26,7 @@ For observability, you can inspect the Lambda's Cloudwatch logs: runtime duratio
     * 1 DMS replication task
     * 1 S3 bucket
     * other miscellaneous AWS resources
+* As always, IAM permissions and VPC security groups are the trickiest parts.
 
 
 
