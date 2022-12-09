@@ -1,3 +1,5 @@
+import json
+
 from aws_cdk import (
     BundlingOptions,
     Duration,
@@ -80,6 +82,7 @@ class CDCStack(Stack):
                 #     self, "DefaultSecurityGroup", security_group_id="sg-3e224941"  ### replace with code
                 # ),
             ],
+            parameters={"binlog_format": "ROW"},
             publicly_accessible=True,  # will have to figure out VPC
             removal_policy=RemovalPolicy.DESTROY,
             delete_automated_backups=True,
@@ -121,7 +124,7 @@ class CDCStack(Stack):
             username="admin",
             password="password",
         )
-        self.dms_rds_source_endpoint = dms.CfnEndpoint(
+        self.dms_redshift_target_endpoint = dms.CfnEndpoint(
             self,
             "RedshiftTargetEndpoint",
             endpoint_type="target",
@@ -137,6 +140,28 @@ class CDCStack(Stack):
             "DMSReplicationInstance",
             replication_instance_class="dms.t3.micro",  # for demo purposes
             vpc_security_group_ids=["sg-3e224941"],
+        )
+        self.dms_replication_task = dms.CfnReplicationTask(self, "DMSReplicationTask",
+            migration_type="cdc",
+            replication_instance_arn=self.dms_replication_instance.ref, # appears that
+            source_endpoint_arn=self.dms_rds_source_endpoint.ref,  # `ref` means
+            target_endpoint_arn=self.dms_redshift_target_endpoint.ref,  # arn
+            table_mappings=json.dumps({
+                "rules": [
+                    {
+                        "rule-type": "selection",
+                        "rule-id": "1",
+                        "rule-name": "1",
+                        "object-locator": {
+                            "schema-name": "%",
+                            "table-name": "rds_cdc_table"  ### hard coded
+                        },
+                        "rule-action": "include",
+                        "filters": [],
+                    }
+                ]
+            }),
+            replication_task_settings=json.dumps({"Logging": {"EnableLogging": True}}),
         )
 
 
@@ -211,7 +236,6 @@ class CDCStack(Stack):
                             [
                                 "pip install -r requirements.txt -t /asset-output",
                                 "cp handler.py txns.csv /asset-output",  # need to cp instead of mv
-                                # "cp -au . /asset-output",  # or cp everything
                             ]
                         ),
                     ],
@@ -221,6 +245,39 @@ class CDCStack(Stack):
             timeout=Duration.seconds(3),  # should be fairly quick
             memory_size=128,  # in MB
         )
+
+
+        self.start_dms_role = iam.Role(
+            self,
+            "StartDMSRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+            ],
+        )
+        self.start_dms_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["dms:StartReplicationTask",  "dms:DescribeReplicationTasks"], resources=["*"]
+            )
+        )
+        self.start_dms_replication_task_lambda = _lambda.Function(
+            self,
+            "StartDMSReplicationTaskLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset(
+                "source/start_dms_replication_task_lambda",
+                exclude=[".venv/*"],
+            ),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(1),  # should be instantaneous
+            memory_size=128,  # in MB
+            role=self.start_dms_role,
+        )
+        # self.start_dms_replication_task_lambda.add_permission(
+        #     "start_dms_replication_task_permission",
+        #     principal=iam.ServicePrincipal("lambda.amazonaws.com"),
+        #     action="dms:StartReplicationTask",
+        # )
 
 
         self.scheduled_eventbridge_event = events.Rule(
@@ -282,4 +339,15 @@ class CDCStack(Stack):
         )
         self.load_data_to_rds_lambda.add_environment(
             key="RDS_HOST", value=self.rds_instance.db_instance_endpoint_address
+        )
+
+
+        self.scheduled_eventbridge_event.add_target(
+            target=events_targets.LambdaFunction(
+                handler=self.start_dms_replication_task_lambda, retry_attempts=3,
+                ### then put in DLQ
+            ),
+        )
+        self.start_dms_replication_task_lambda.add_environment(
+            key="DMS_REPLICATION_TASK_ARN", value=self.dms_replication_task.ref  # appears `ref` means arn
         )
