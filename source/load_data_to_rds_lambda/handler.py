@@ -11,21 +11,32 @@ RDS_TABLE_NAME = "rds_cdc_table"
 
 
 def lambda_handler(event, context):
-    conn = pymysql.connect(host=RDS_HOST, user=RDS_USER, passwd=RDS_PASSWORD, db=RDS_DATABASE_NAME, connect_timeout=5)
+    conn = pymysql.connect(
+        host=RDS_HOST,
+        user=RDS_USER,
+        passwd=RDS_PASSWORD,
+        db=RDS_DATABASE_NAME,
+        connect_timeout=5,
+    )
     with conn, conn.cursor() as cursor, open("txns.csv") as f:
         csv_reader = csv.reader(f)
         column_names = next(csv_reader)
-        column_names = [column_name.replace(" ", "_").lower() for column_name in column_names]
+        column_names = [
+            column_name.replace(" ", "_").lower() for column_name in column_names
+        ]
         csv_data = [tuple(row) for row in csv_reader]
         # print(csv_data)
         cursor.execute(
             "CREATE TABLE if not exists {rds_table_name} ({column_name_and_types});".format(
                 rds_table_name=RDS_TABLE_NAME,
-                column_name_and_types=", ".join(f"{column_name} varchar(40)" for column_name in column_names),
+                column_name_and_types=", ".join(
+                    f"{column_name} varchar(40)" for column_name in column_names
+                ),
             )  # did not define a primary key
         )
         conn.commit()
-        cursor.executemany("""
+        cursor.executemany(
+            """
             INSERT INTO {rds_table_name} ({column_names})
             VALUES ({column_types});""".format(
                 rds_table_name=RDS_TABLE_NAME,

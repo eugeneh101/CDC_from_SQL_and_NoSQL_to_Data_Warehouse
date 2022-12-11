@@ -21,8 +21,6 @@ from aws_cdk import (
 from constructs import Construct
 
 
-
-
 class CDCStack(Stack):
     def __init__(
         self, scope: Construct, construct_id: str, environment: dict, **kwargs
@@ -42,7 +40,8 @@ class CDCStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
         self.cdc_from_dynamodb_to_redshift_s3_bucket = s3.Bucket(
-            self, "DynamoDBStreamToRedshiftS3Bucket",
+            self,
+            "DynamoDBStreamToRedshiftS3Bucket",
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
         )
@@ -56,7 +55,7 @@ class CDCStack(Stack):
             "SecurityGroupForRDS",
             vpc=self.default_vpc,
             allow_all_outbound=True,
-            )
+        )
         self.security_group_for_rds.add_ingress_rule(
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(3306),
@@ -64,17 +63,22 @@ class CDCStack(Stack):
         self.rds_instance = rds.DatabaseInstance(
             self,
             "RDSToCDCToRedshift",
-            engine=rds.DatabaseInstanceEngine.mysql(version=rds.MysqlEngineVersion.VER_8_0_28),
+            engine=rds.DatabaseInstanceEngine.mysql(
+                version=rds.MysqlEngineVersion.VER_8_0_28
+            ),
             # optional, defaults to m5.large
             instance_type=ec2.InstanceType("t3.micro"),  # for demo purposes
             # ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.MICRO),
             credentials=rds.Credentials.from_username(
-                username="admin", password=SecretValue.unsafe_plain_text("password")  ### hard coded
+                username="admin",
+                password=SecretValue.unsafe_plain_text("password"),  ### hard coded
             ),
             database_name="rds_to_redshift_database",  ### hard coded
             port=3306,  ### hard coded
             vpc=self.default_vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # will have to figure out VPC
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PUBLIC
+            ),  # will have to figure out VPC
             security_groups=[
                 self.security_group_for_rds,
                 # self.default_security_group,
@@ -88,13 +92,14 @@ class CDCStack(Stack):
             delete_automated_backups=True,
         )
 
-
         self.redshift_full_commands_full_access_role = iam.Role(
             self,
             "RedshiftClusterRole",
             assumed_by=iam.ServicePrincipal("redshift.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftAllCommandsFullAccess"),  ### later principle of least privileges
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonRedshiftAllCommandsFullAccess"
+                ),  ### later principle of least privileges
             ],
         )
         self.redshift_cluster = redshift.CfnCluster(  ### refactor as its own Construct
@@ -111,8 +116,6 @@ class CDCStack(Stack):
             # vpc_security_group_ids=[
             #     quicksight_to_redshift_sg.security_group_id]
         )
-
-
 
         self.dms_rds_source_endpoint = dms.CfnEndpoint(
             self,
@@ -141,29 +144,32 @@ class CDCStack(Stack):
             replication_instance_class="dms.t3.micro",  # for demo purposes
             vpc_security_group_ids=["sg-3e224941"],
         )
-        self.dms_replication_task = dms.CfnReplicationTask(self, "DMSReplicationTask",
+        self.dms_replication_task = dms.CfnReplicationTask(
+            self,
+            "DMSReplicationTask",
             migration_type="cdc",
-            replication_instance_arn=self.dms_replication_instance.ref, # appears that
+            replication_instance_arn=self.dms_replication_instance.ref,  # appears that
             source_endpoint_arn=self.dms_rds_source_endpoint.ref,  # `ref` means
             target_endpoint_arn=self.dms_redshift_target_endpoint.ref,  # arn
-            table_mappings=json.dumps({
-                "rules": [
-                    {
-                        "rule-type": "selection",
-                        "rule-id": "1",
-                        "rule-name": "1",
-                        "object-locator": {
-                            "schema-name": "%",
-                            "table-name": "rds_cdc_table"  ### hard coded
-                        },
-                        "rule-action": "include",
-                        "filters": [],
-                    }
-                ]
-            }),
+            table_mappings=json.dumps(
+                {
+                    "rules": [
+                        {
+                            "rule-type": "selection",
+                            "rule-id": "1",
+                            "rule-name": "1",
+                            "object-locator": {
+                                "schema-name": "%",
+                                "table-name": "rds_cdc_table",  ### hard coded
+                            },
+                            "rule-action": "include",
+                            "filters": [],
+                        }
+                    ]
+                }
+            ),
             replication_task_settings=json.dumps({"Logging": {"EnableLogging": True}}),
         )
-
 
         # stateless resources
         self.load_data_to_dynamodb_lambda = _lambda.Function(
@@ -172,7 +178,10 @@ class CDCStack(Stack):
             runtime=_lambda.Runtime.PYTHON_3_9,
             code=_lambda.Code.from_asset(
                 "source/load_data_to_dynamodb_lambda",
-                exclude=[".venv/*", "tests/*"],  # seems to no longer do anything if use BundlingOptions
+                exclude=[
+                    ".venv/*",
+                    "tests/*",
+                ],  # seems to no longer do anything if use BundlingOptions
             ),
             handler="handler.lambda_handler",
             timeout=Duration.seconds(3),  # should be fairly quick
@@ -198,8 +207,12 @@ class CDCStack(Stack):
             "LambdaRedshiftFullAccessRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonRedshiftFullAccess"),  ### later principle of least privileges
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                ),
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonRedshiftFullAccess"
+                ),  ### later principle of least privileges
             ],
         )
         self.load_s3_files_from_dynamodb_stream_to_redshift_lambda = _lambda.Function(
@@ -218,7 +231,6 @@ class CDCStack(Stack):
             },
             role=self.lambda_redshift_full_access_role,
         )
-
 
         self.load_data_to_rds_lambda = _lambda.Function(
             self,
@@ -246,18 +258,20 @@ class CDCStack(Stack):
             memory_size=128,  # in MB
         )
 
-
         self.start_dms_role = iam.Role(
             self,
             "StartDMSRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                ),
             ],
         )
         self.start_dms_role.add_to_policy(
             iam.PolicyStatement(
-                actions=["dms:StartReplicationTask",  "dms:DescribeReplicationTasks"], resources=["*"]
+                actions=["dms:StartReplicationTask", "dms:DescribeReplicationTasks"],
+                resources=["*"],
             )
         )
         self.start_dms_replication_task_lambda = _lambda.Function(
@@ -279,7 +293,6 @@ class CDCStack(Stack):
         #     action="dms:StartReplicationTask",
         # )
 
-
         self.scheduled_eventbridge_event = events.Rule(
             self,
             "RunEvery5Minutes",
@@ -290,7 +303,8 @@ class CDCStack(Stack):
         # connect the AWS resources
         self.scheduled_eventbridge_event.add_target(
             target=events_targets.LambdaFunction(
-                handler=self.load_data_to_dynamodb_lambda, retry_attempts=3,
+                handler=self.load_data_to_dynamodb_lambda,
+                retry_attempts=3,
                 ### then put in DLQ
             ),
         )
@@ -299,19 +313,24 @@ class CDCStack(Stack):
             key="DYNAMODB_TABLE_NAME", value=self.dynamodb_table.table_name
         )
         self.write_dynamodb_stream_to_s3_lambda.add_event_source(
-            event_sources.DynamoEventSource(self.dynamodb_table,
-            starting_position=_lambda.StartingPosition.LATEST,
-            # filters=[{"event_name": _lambda.FilterRule.is_equal("INSERT")}]
-        ))
+            event_sources.DynamoEventSource(
+                self.dynamodb_table,
+                starting_position=_lambda.StartingPosition.LATEST,
+                # filters=[{"event_name": _lambda.FilterRule.is_equal("INSERT")}]
+            )
+        )
         self.write_dynamodb_stream_to_s3_lambda.add_environment(
             key="S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
             value=self.cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
         )
-        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_write(self.write_dynamodb_stream_to_s3_lambda)
+        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_write(
+            self.write_dynamodb_stream_to_s3_lambda
+        )
 
         self.scheduled_eventbridge_event.add_target(
             target=events_targets.LambdaFunction(
-                handler=self.load_s3_files_from_dynamodb_stream_to_redshift_lambda, retry_attempts=3,
+                handler=self.load_s3_files_from_dynamodb_stream_to_redshift_lambda,
+                retry_attempts=3,
                 ### then put in DLQ
             ),
         )
@@ -333,7 +352,8 @@ class CDCStack(Stack):
 
         self.scheduled_eventbridge_event.add_target(
             target=events_targets.LambdaFunction(
-                handler=self.load_data_to_rds_lambda, retry_attempts=3,
+                handler=self.load_data_to_rds_lambda,
+                retry_attempts=3,
                 ### then put in DLQ
             ),
         )
@@ -341,13 +361,14 @@ class CDCStack(Stack):
             key="RDS_HOST", value=self.rds_instance.db_instance_endpoint_address
         )
 
-
         self.scheduled_eventbridge_event.add_target(
             target=events_targets.LambdaFunction(
-                handler=self.start_dms_replication_task_lambda, retry_attempts=3,
+                handler=self.start_dms_replication_task_lambda,
+                retry_attempts=3,
                 ### then put in DLQ
             ),
         )
         self.start_dms_replication_task_lambda.add_environment(
-            key="DMS_REPLICATION_TASK_ARN", value=self.dms_replication_task.ref  # appears `ref` means arn
+            key="DMS_REPLICATION_TASK_ARN",
+            value=self.dms_replication_task.ref,  # appears `ref` means arn
         )
