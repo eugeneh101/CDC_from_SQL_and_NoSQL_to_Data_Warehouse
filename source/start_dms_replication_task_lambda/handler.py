@@ -3,7 +3,6 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
-
 client = boto3.client("dms")
 DMS_REPLICATION_TASK_ARN = os.environ["DMS_REPLICATION_TASK_ARN"]
 

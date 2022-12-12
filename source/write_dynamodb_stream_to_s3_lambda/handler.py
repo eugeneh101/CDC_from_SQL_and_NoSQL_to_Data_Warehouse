@@ -7,7 +7,6 @@ from decimal import Decimal
 import boto3
 from boto3.dynamodb.types import TypeDeserializer
 
-
 s3_bucket = boto3.resource("s3").Bucket(
     os.environ["S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT"]
 )
@@ -32,7 +31,7 @@ def lambda_handler(event, context):
             pass
         else:
             raise ValueError(
-                f'Did not expect DynamoDB stream\'s `eventName` to be "{record["eventName"]}"'
+                f'''Did not expect DynamoDB stream's `eventName` to be "{record["eventName"]}"'''
             )
     # print(s3_file_contents)
     s3_file_contents_in_redshift_json_string = "\n".join(
@@ -40,11 +39,17 @@ def lambda_handler(event, context):
     )
     if s3_file_contents_in_redshift_json_string:
         s3_bucket.put_object(
-            Key=f"{datetime.utcnow().strftime('%Y-%d-%m %H.%M.%S')}__inserted_or_modified_records__{uuid.uuid4()}.json",
+            Key=(
+                f"{datetime.utcnow().strftime('%Y-%d-%m %H.%M.%S')}"
+                f"__inserted_or_modified_records__{uuid.uuid4()}.json"
+            ),
             Body=s3_file_contents_in_redshift_json_string.encode(),
         )
     else:
         s3_bucket.put_object(
-            Key=f"{datetime.utcnow().strftime('%Y-%d-%m %H.%M.%S')}__no_inserted_or_modified_records__{uuid.uuid4()}.txt"
+            Key=(
+                f"{datetime.utcnow().strftime('%Y-%d-%m %H.%M.%S')}"
+                f"__no_inserted_or_modified_records__{uuid.uuid4()}.txt"
+            )
         )
     return

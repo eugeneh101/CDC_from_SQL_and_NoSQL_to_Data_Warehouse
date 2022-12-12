@@ -3,15 +3,18 @@ import time
 
 import boto3
 
-
-s3_bucket = boto3.resource("s3").Bucket(os.environ["S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT"])
+s3_bucket = boto3.resource("s3").Bucket(
+    os.environ["S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT"]
+)
 redshift_data_client = boto3.client("redshift-data")
+
 REDSHIFT_CLUSTER_NAME = os.environ["REDSHIFT_ENDPOINT_ADDRESS"].split(".")[0]
 REDSHIFT_ROLE_ARN = os.environ["REDSHIFT_ROLE_ARN"]
-REDSHIFT_DATABASE_NAME = "redshift_database"  ### hard coded
-REDSHIFT_SCHEMA_NAME = "dynamodb_schema"  ### hard coded
-REDSHIFT_TABLE_NAME = "dynamodb_stream_cdc"  ### hard coded
-REDSHIFT_USER = "admin"  ### hard coded
+REDSHIFT_USER = os.environ["REDSHIFT_USER"]
+REDSHIFT_DATABASE_NAME = os.environ["REDSHIFT_DATABASE_NAME"]
+REDSHIFT_SCHEMA_NAME = os.environ["REDSHIFT_SCHEMA_NAME"]
+REDSHIFT_TABLE_NAME = os.environ["REDSHIFT_TABLE_NAME"]
+AWS_REGION = os.environ["AWSREGION"]
 
 
 def execute_sql_statement(sql_statement):
@@ -60,7 +63,7 @@ def lambda_handler(event, context):
                 sql_statement = f"""
                     COPY {REDSHIFT_DATABASE_NAME}.{REDSHIFT_SCHEMA_NAME}.{REDSHIFT_TABLE_NAME}
                     FROM 's3://{s3_bucket.name}/{s3_file.key}'
-                    REGION '{os.environ["AWSREGION"]}'
+                    REGION '{AWS_REGION}'
                     iam_role '{REDSHIFT_ROLE_ARN}'
                     format as json 'auto';
                 """

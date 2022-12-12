@@ -4,10 +4,11 @@ import os
 import pymysql
 
 RDS_HOST = os.environ["RDS_HOST"]
-RDS_USER = "admin"  ### hard coded
-RDS_PASSWORD = "password"  ### hard coded
-RDS_DATABASE_NAME = "rds_to_redshift_database"  ### hard coded
-RDS_TABLE_NAME = "rds_cdc_table"
+RDS_USER = os.environ["RDS_USER"]
+RDS_PASSWORD = os.environ["RDS_PASSWORD"]
+RDS_DATABASE_NAME = os.environ["RDS_DATABASE_NAME"]
+RDS_TABLE_NAME = os.environ["RDS_TABLE_NAME"]
+CSV_FILENAME = os.environ["CSV_FILENAME"]
 
 
 def lambda_handler(event, context):
@@ -18,7 +19,7 @@ def lambda_handler(event, context):
         db=RDS_DATABASE_NAME,
         connect_timeout=5,
     )
-    with conn, conn.cursor() as cursor, open("txns.csv") as f:
+    with conn, conn.cursor() as cursor, open(CSV_FILENAME) as f:
         csv_reader = csv.reader(f)
         column_names = next(csv_reader)
         column_names = [
