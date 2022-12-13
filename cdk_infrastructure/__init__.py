@@ -1,17 +1,23 @@
 import json
 
-from aws_cdk import BundlingOptions, Duration, RemovalPolicy, SecretValue, Stack
-from aws_cdk import aws_dms as dms
-from aws_cdk import aws_dynamodb as dynamodb
-from aws_cdk import aws_ec2 as ec2
-from aws_cdk import aws_events as events
-from aws_cdk import aws_events_targets as events_targets
-from aws_cdk import aws_iam as iam
-from aws_cdk import aws_lambda as _lambda
-from aws_cdk import aws_lambda_event_sources as event_sources
-from aws_cdk import aws_rds as rds
-from aws_cdk import aws_redshift as redshift
-from aws_cdk import aws_s3 as s3
+from aws_cdk import (
+    BundlingOptions,
+    Duration,
+    RemovalPolicy,
+    SecretValue,
+    Stack,
+    aws_dms as dms,
+    aws_dynamodb as dynamodb,
+    aws_ec2 as ec2,
+    aws_events as events,
+    aws_events_targets as events_targets,
+    aws_iam as iam,
+    aws_lambda as _lambda,
+    aws_lambda_event_sources as event_sources,
+    aws_rds as rds,
+    aws_redshift as redshift,
+    aws_s3 as s3,
+)
 from constructs import Construct
 
 
@@ -23,30 +29,6 @@ class CDCStack(Stack):
 
         # stateful resources
         self.default_vpc = ec2.Vpc.from_lookup(self, "DefaultVPC", is_default=True)
-        # self.security_group_for_rds = ec2.SecurityGroup(
-        #     self,
-        #     "SecurityGroupForRDS",
-        #     vpc=self.default_vpc,
-        #     allow_all_outbound=True,
-        # )
-        # self.security_group_for_rds.add_ingress_rule(
-        #     peer=ec2.Peer.any_ipv4(),
-        #     connection=ec2.Port.tcp(environment["RDS_PORT"]),
-        # )
-        # self.security_group_for_redshift_dms = ec2.SecurityGroup(
-        #     self,
-        #     "SecurityGroupForRedshiftDMS",
-        #     vpc=self.default_vpc,
-        #     allow_all_outbound=True,
-        # )
-        # self.security_group_for_redshift_dms.add_ingress_rule(
-        #     peer=ec2.Peer.any_ipv4(),
-        #     connection=ec2.Port.tcp(environment["RDS_PORT"]),
-        # )
-        # self.security_group_for_redshift_dms.add_ingress_rule(
-        #     peer=ec2.Peer.any_ipv4(),
-        #     connection=ec2.Port.tcp(environment["REDSHIFT_PORT"]),
-        # )
         self.security_group_for_rds_redshift_dms = ec2.SecurityGroup(
             self,
             "SecurityGroupForRDSRedshiftDMS",
@@ -61,10 +43,6 @@ class CDCStack(Stack):
             peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(environment["REDSHIFT_PORT"]),
         )
-
-
-
-
 
         self.dynamodb_table = dynamodb.Table(
             self,
@@ -132,9 +110,6 @@ class CDCStack(Stack):
             vpc_security_group_ids=[self.security_group_for_rds_redshift_dms.security_group_id],
         )
 
-
-
-
         self.dms_rds_source_endpoint = dms.CfnEndpoint(
             self,
             "RDSSourceEndpoint",
@@ -161,7 +136,6 @@ class CDCStack(Stack):
             "DMSReplicationInstance",
             replication_instance_class="dms.t3.micro",  # for demo purposes
             vpc_security_group_ids=[self.security_group_for_rds_redshift_dms.security_group_id],
-            # vpc_security_group_ids=["sg-3e224941"], ### automate
         )
         self.dms_replication_task = dms.CfnReplicationTask(
             self,
@@ -288,22 +262,6 @@ class CDCStack(Stack):
             },
         )
 
-        # self.start_dms_role = iam.Role(
-        #     self,
-        #     "StartDMSRole",
-        #     assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-        #     managed_policies=[
-        #         iam.ManagedPolicy.from_aws_managed_policy_name(
-        #             "service-role/AWSLambdaBasicExecutionRole"
-        #         ),
-        #     ],
-        # )
-        # self.start_dms_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions=["dms:StartReplicationTask", "dms:DescribeReplicationTasks"],
-        #         resources=["*"], ###
-        #     )
-        # )
         self.start_dms_replication_task_lambda = _lambda.Function(
             self,
             "StartDMSReplicationTaskLambda",
@@ -315,7 +273,6 @@ class CDCStack(Stack):
             handler="handler.lambda_handler",
             timeout=Duration.seconds(1),  # should be instantaneous
             memory_size=128,  # in MB
-            # role=self.start_dms_role,  ### delete
         )
         self.start_dms_replication_task_lambda.add_to_role_policy(
             iam.PolicyStatement(
@@ -323,11 +280,6 @@ class CDCStack(Stack):
                 resources=["*"],
             )
         )
-        # self.start_dms_replication_task_lambda.add_permission(
-        #     "start_dms_replication_task_permission",
-        #     principal=iam.ServicePrincipal("lambda.amazonaws.com"),
-        #     action="dms:StartReplicationTask",
-        # )
 
         self.scheduled_eventbridge_event = events.Rule(
             self,
