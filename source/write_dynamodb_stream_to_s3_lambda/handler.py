@@ -40,7 +40,7 @@ def lambda_handler(event, context):
     if s3_file_contents_in_redshift_json_string:
         s3_bucket.put_object(
             Key=(
-                f"{datetime.utcnow().strftime('%Y-%d-%m %H.%M.%S')}"
+                f"{datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}"
                 f"__inserted_or_modified_records__{uuid.uuid4()}.json"
             ),
             Body=s3_file_contents_in_redshift_json_string.encode(),
@@ -48,7 +48,7 @@ def lambda_handler(event, context):
     else:
         s3_bucket.put_object(
             Key=(
-                f"{datetime.utcnow().strftime('%Y-%d-%m %H.%M.%S')}"
+                f"{datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}"
                 f"__no_inserted_or_modified_records__{uuid.uuid4()}.txt"
             )
         )
