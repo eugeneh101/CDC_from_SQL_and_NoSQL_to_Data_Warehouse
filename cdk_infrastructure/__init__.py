@@ -195,17 +195,45 @@ class CDCFromRDSToRedshiftService(Construct):
             replication_task_settings=json.dumps({"Logging": {"EnableLogging": True}}),
         )
 
+        env_vars = {
+            "PRINT_RDS_AND_REDSHIFT_NUM_ROWS": json.dumps(environment["PRINT_RDS_AND_REDSHIFT_NUM_ROWS"])
+        }
+        if environment["PRINT_RDS_AND_REDSHIFT_NUM_ROWS"]:
+             env_vars.update({
+                "RDS_HOST": rds_endpoint_address,
+                "RDS_USER": environment["RDS_USER"],
+                "RDS_PASSWORD": environment["RDS_PASSWORD"],
+                "RDS_DATABASE_NAME": environment["RDS_DATABASE_NAME"],
+                "RDS_TABLE_NAME": environment["RDS_TABLE_NAME"],
+                "REDSHIFT_ENDPOINT_ADDRESS": redshift_endpoint_address,
+                "REDSHIFT_USER": environment["REDSHIFT_USER"],
+                "REDSHIFT_DATABASE_NAME": environment["REDSHIFT_DATABASE_NAME"],
+            })
         self.start_dms_replication_task_lambda = _lambda.Function(
             self,
             "StartDMSReplicationTaskLambda",
             runtime=_lambda.Runtime.PYTHON_3_9,
             code=_lambda.Code.from_asset(
                 "source/start_dms_replication_task_lambda",
-                exclude=[".venv/*"],
+                # exclude=[".venv/*"],  # seems to no longer do anything if use BundlingOptions
+                bundling=BundlingOptions(
+                    image=_lambda.Runtime.PYTHON_3_9.bundling_image,
+                    command=[
+                        "bash",
+                        "-c",
+                        " && ".join(
+                            [
+                                "pip install -r requirements.txt -t /asset-output",
+                                "cp handler.py /asset-output",  # need to cp instead of mv
+                            ]
+                        ),
+                    ],
+                ),
             ),
             handler="handler.lambda_handler",
-            timeout=Duration.seconds(1),  # should be instantaneous
+            timeout=Duration.seconds(3),  # should be fairly quick
             memory_size=128,  # in MB
+            environment=env_vars,
         )
         self.start_dms_replication_task_lambda.add_to_role_policy(
             iam.PolicyStatement(
@@ -213,6 +241,18 @@ class CDCFromRDSToRedshiftService(Construct):
                 resources=["*"],
             )
         )
+        if environment["PRINT_RDS_AND_REDSHIFT_NUM_ROWS"]:
+            self.start_dms_replication_task_lambda.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=[
+                        "redshift-data:ExecuteStatement",
+                        "redshift-data:DescribeStatement",
+                        "redshift-data:GetStatementResult",
+                        "redshift:GetClusterCredentials",
+                    ],
+                    resources=["*"],
+                )
+            )
 
         # connect the AWS resources
         self.start_dms_replication_task_lambda.add_environment(
@@ -335,8 +375,8 @@ class CDCFromDynamoDBToRedshiftService(Construct):
             environment={
                 "REDSHIFT_USER": environment["REDSHIFT_USER"],
                 "REDSHIFT_DATABASE_NAME": environment["REDSHIFT_DATABASE_NAME"],
-                "REDSHIFT_SCHEMA_NAME": environment["REDSHIFT_SCHEMA_NAME"],
-                "REDSHIFT_TABLE_NAME": environment["REDSHIFT_TABLE_NAME"],
+                "REDSHIFT_SCHEMA_NAME_FOR_DYNAMODB_CDC": environment["REDSHIFT_SCHEMA_NAME_FOR_DYNAMODB_CDC"],
+                "REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC": environment["REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC"],
                 "AWSREGION": environment[
                     "AWS_REGION"
                 ],  # apparently "AWS_REGION" is not allowed as a Lambda env variable
