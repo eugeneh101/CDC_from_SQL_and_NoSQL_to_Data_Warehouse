@@ -13,7 +13,7 @@ REDSHIFT_ROLE_ARN = os.environ["REDSHIFT_ROLE_ARN"]
 REDSHIFT_USER = os.environ["REDSHIFT_USER"]
 REDSHIFT_DATABASE_NAME = os.environ["REDSHIFT_DATABASE_NAME"]
 REDSHIFT_SCHEMA_NAME = os.environ["REDSHIFT_SCHEMA_NAME"]
-REDSHIFT_TABLE_NAME = os.environ["REDSHIFT_TABLE_NAME"]
+REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC = os.environ["REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC"]
 AWS_REGION = os.environ["AWSREGION"]
 
 
@@ -46,7 +46,7 @@ def lambda_handler(event, context):
     if dynamodb_stream_s3_files:
         sql_statements = [
             f"CREATE SCHEMA IF NOT EXISTS {REDSHIFT_SCHEMA_NAME};",
-            f"""CREATE TABLE IF NOT EXISTS {REDSHIFT_SCHEMA_NAME}.{REDSHIFT_TABLE_NAME} (
+            f"""CREATE TABLE IF NOT EXISTS {REDSHIFT_SCHEMA_NAME}.{REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC} (
                 id varchar(30) UNIQUE NOT NULL,
                 details super,
                 price float,
@@ -61,7 +61,7 @@ def lambda_handler(event, context):
         for s3_file in dynamodb_stream_s3_files:
             if "__inserted_or_modified_records__" in s3_file.key:
                 sql_statement = f"""
-                    COPY {REDSHIFT_DATABASE_NAME}.{REDSHIFT_SCHEMA_NAME}.{REDSHIFT_TABLE_NAME}
+                    COPY {REDSHIFT_DATABASE_NAME}.{REDSHIFT_SCHEMA_NAME}.{REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC}
                     FROM 's3://{s3_bucket.name}/{s3_file.key}'
                     REGION '{AWS_REGION}'
                     iam_role '{REDSHIFT_ROLE_ARN}'

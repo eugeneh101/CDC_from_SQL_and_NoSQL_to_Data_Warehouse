@@ -15,9 +15,11 @@
             "REDSHIFT_USER": "admin",
             "REDSHIFT_PASSWORD": "Password1",
             "REDSHIFT_DATABASE_NAME": "redshift_database",
-            "REDSHIFT_SCHEMA_NAME": "dynamodb_schema",
-            "REDSHIFT_TABLE_NAME": "dynamodb_stream_cdc",
-            "REDSHIFT_PORT": 5439
+            "REDSHIFT_SCHEMA_NAME_FOR_DYNAMODB_CDC": "dynamodb_schema",
+            "REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC": "dynamodb_cdc_table",
+            "REDSHIFT_PORT": 5439,
+
+            "PRINT_RDS_AND_REDSHIFT_NUM_ROWS": true
         }
     }
 }
