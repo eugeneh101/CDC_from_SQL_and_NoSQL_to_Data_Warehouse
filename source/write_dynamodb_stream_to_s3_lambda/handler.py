@@ -22,6 +22,7 @@ class DecimalEncoder(json.JSONEncoder):
 def lambda_handler(event, context):
     s3_file_contents = []
     # print(event["Records"])
+    print(f"Number of records received from DynamoDB stream: {len(event['Records'])}")
     for record in event["Records"]:
         if record["eventName"] in ["INSERT", "MODIFY"]:
             s3_file_contents.append(
@@ -52,4 +53,5 @@ def lambda_handler(event, context):
                 f"__no_inserted_or_modified_records__{uuid.uuid4()}.txt"
             )
         )
+    print(f"Number of records written to S3 file: {len(s3_file_contents)}")
     return
