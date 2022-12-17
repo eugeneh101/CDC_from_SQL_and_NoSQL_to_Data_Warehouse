@@ -85,7 +85,12 @@ class RDSService(Construct):
                 subnet_type=ec2.SubnetType.PUBLIC
             ),  ### will have to figure out VPC
             security_groups=[security_group],
-            parameters={"binlog_format": "ROW"},
+            parameters={  # needed for DMS replication task to run successfully
+                "binlog_format": "ROW",
+                "binlog_row_image": "full",
+                "binlog_checksum": "NONE",
+                ### eventually set binlog retention hours with CustomResource
+                },
             publicly_accessible=True,  ### will have to figure out VPC
             removal_policy=RemovalPolicy.DESTROY,
             delete_automated_backups=True,
@@ -171,7 +176,7 @@ class CDCFromRDSToRedshiftService(Construct):
         self.dms_replication_task = dms.CfnReplicationTask(
             self,
             "DMSReplicationTask",
-            migration_type="cdc",
+            migration_type="full-load-and-cdc",
             replication_instance_arn=self.dms_replication_instance.ref,  # appears that
             source_endpoint_arn=self.dms_rds_source_endpoint.ref,  # `ref` means
             target_endpoint_arn=self.dms_redshift_target_endpoint.ref,  # arn
