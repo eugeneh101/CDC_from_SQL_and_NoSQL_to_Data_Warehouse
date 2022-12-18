@@ -40,7 +40,7 @@ class RedshiftService(Construct):
                 ),  ### later principle of least privileges
             ],
         )
-        self.redshift_cluster = redshift.CfnCluster(  ### refactor as its own Construct
+        self.redshift_cluster = redshift.CfnCluster(
             self,
             "RedshiftCluster",
             cluster_type="single-node",  # for demo purposes
@@ -290,6 +290,14 @@ class DynamoDBService(Construct):
             "DynamoDBStreamToRedshiftS3Bucket",
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
+            versioned=False,  # if versioning disabled, then expired files are deleted
+            lifecycle_rules=[
+                s3.LifecycleRule(
+                    id="expire_files_with_certain_prefix_after_1_day",
+                    expiration=Duration.days(1),
+                    prefix=f"{environment['PROCESSED_DYNAMODB_STREAM_FOLDER']}/",
+                ),
+            ],
         )
 
         self.load_data_to_dynamodb_lambda = _lambda.Function(
@@ -318,6 +326,7 @@ class DynamoDBService(Construct):
             memory_size=128,  # in MB
             environment={  # apparently "AWS_REGION" is not allowed as a Lambda env variable
                 "AWSREGION": environment["AWS_REGION"],
+                "UNPROCESSED_DYNAMODB_STREAM_FOLDER": environment["UNPROCESSED_DYNAMODB_STREAM_FOLDER"],
             },
         )
 
@@ -327,7 +336,7 @@ class DynamoDBService(Construct):
         )
         self.dynamodb_table.grant_write_data(self.load_data_to_dynamodb_lambda)
         self.write_dynamodb_stream_to_s3_lambda.add_environment(
-            key="S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
+            key="S3_BUCKET_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
             value=self.cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
         )
         self.write_dynamodb_stream_to_s3_lambda.add_event_source(
@@ -385,13 +394,15 @@ class CDCFromDynamoDBToRedshiftService(Construct):
                 "AWSREGION": environment[
                     "AWS_REGION"
                 ],  # apparently "AWS_REGION" is not allowed as a Lambda env variable
+                "UNPROCESSED_DYNAMODB_STREAM_FOLDER": environment["UNPROCESSED_DYNAMODB_STREAM_FOLDER"],
+                "PROCESSED_DYNAMODB_STREAM_FOLDER": environment["PROCESSED_DYNAMODB_STREAM_FOLDER"],
             },
             role=self.lambda_redshift_full_access_role,
         )
 
         # connect the AWS resources
         lambda_environment_variables = {
-            "S3_FOR_DYNAMODB_STREAM_TO_REDSHIFT": cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
+            "S3_BUCKET_FOR_DYNAMODB_STREAM_TO_REDSHIFT": cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
             "REDSHIFT_ENDPOINT_ADDRESS": redshift_endpoint_address,
             "REDSHIFT_ROLE_ARN": redshift_role_arn,
         }
