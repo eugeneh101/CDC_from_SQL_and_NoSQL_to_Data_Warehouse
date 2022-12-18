@@ -5,6 +5,8 @@
             "AWS_REGION": "us-east-1",
             "CSV_FILENAME": "txns.csv",
             "JSON_FILENAME": "trades.json",
+            "UNPROCESSED_DYNAMODB_STREAM_FOLDER": "unprocessed_dynamodb_streams",
+            "PROCESSED_DYNAMODB_STREAM_FOLDER": "processed_and_safe_to_delete",
 
             "RDS_USER": "admin",
             "RDS_PASSWORD": "password",
