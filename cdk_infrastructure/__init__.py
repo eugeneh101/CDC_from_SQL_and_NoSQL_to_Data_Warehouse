@@ -52,6 +52,7 @@ class RedshiftService(Construct):
             iam_roles=[self.redshift_full_commands_full_access_role.role_arn],
             # cluster_subnet_group_name=demo_cluster_subnet_group.ref,
             vpc_security_group_ids=[security_group.security_group_id],
+            publicly_accessible=False,
         )
 
 
@@ -343,6 +344,8 @@ class DynamoDBService(Construct):
             event_sources.DynamoEventSource(
                 self.dynamodb_table,
                 starting_position=_lambda.StartingPosition.LATEST,
+                batch_size=100,  # hard coded
+                max_batching_window=Duration.seconds(5),  # hard coded
                 # filters=[{"event_name": _lambda.FilterRule.is_equal("INSERT")}]
             )
         )
@@ -384,7 +387,7 @@ class CDCFromDynamoDBToRedshiftService(Construct):
                 exclude=[".venv/*"],
             ),
             handler="handler.lambda_handler",
-            timeout=Duration.seconds(10),  # may take some time if many files
+            timeout=Duration.seconds(20),  # may take some time if many files
             memory_size=128,  # in MB
             environment={
                 "REDSHIFT_USER": environment["REDSHIFT_USER"],

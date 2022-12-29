@@ -43,8 +43,8 @@ def lambda_handler(event, context) -> None:
         s3_bucket.put_object(
             Key=(
                 f"{UNPROCESSED_DYNAMODB_STREAM_FOLDER}/"
-                f"{datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}__{uuid.uuid4()}"
-                "__inserted_or_modified_records.json"  # hard coded suffix
+                f"{datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}__{uuid.uuid4()}__"
+                f"{len(s3_file_contents)}__inserted_or_modified_records.json"  # hard coded suffix
             ),
             Body=s3_file_contents_in_redshift_json_string.encode(),
         )
