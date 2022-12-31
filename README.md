@@ -17,6 +17,7 @@ For observability, you can inspect the Lambda's Cloudwatch logs: runtime duratio
 
 ## Miscellaneous details:
 * `cdk.json` is basically the config file. I specified to deploy this microservice to us-east-1 (Virginia). You can change this to your region of choice.
+* As always, IAM permissions and VPC/security groups are the trickiest parts.
 * The following is the AWS resources deployed by CDK and thus Cloudformation. A summary would be: <p align="center"><img src="AWS_resources.jpg" width="500"></p>
     * 1 RDS instance
     * 1 DynamoDB Table
@@ -26,7 +27,20 @@ For observability, you can inspect the Lambda's Cloudwatch logs: runtime duratio
     * 1 DMS replication task
     * 1 S3 bucket
     * other miscellaneous AWS resources
-* As always, IAM permissions and VPC security groups are the trickiest parts.
+* Redshift table should match RDS table exactly within seconds due to DMS migration task. However Redshift table will not match DynamoDB table exactly in the case that you delete records from DynamoDB table; determine what to do with deleted DynamoDB records if they need to also deleted from Redshift table.
+* If you delete this Cloudformation stack, then it will delete all the AWS resources including stateful resources such as RDS instance, DynamoDB table, Redshft cluster, S3 bucket. You can change the `removal_policy` of the AWS resources if you want them retained instead of deleted.
+* If you delete this stack, first manually stop the DMS migration task; otherwise the stack will not fully delete, ie some AWS resources will remain undeleted.
+
+
+
+# TODOs to Meet Production Requirements
+* Write unit tests for the Lambda code
+* Disable RDS's publicly accessible endpoint if not needed
+* Instead of hard coding the login credentials for RDS and Redshift in `cdk.json`, use Secrets Manager instead
+* Tighten IAM permissions/roles on AWS resources to follow Principle of Least Privilege
+* Tighten the VPC's security groups such that Inbound Rules only allow connections from within the VPC and/or whitelisted IP addresses
+* Create VPC instead of using default VPC if necessary to enforce stronger rules or need the flexibility
+* Add AWS Quicksight to Redshift for business analytics
 
 
 
