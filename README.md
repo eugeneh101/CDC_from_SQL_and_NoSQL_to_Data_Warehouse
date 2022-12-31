@@ -2,7 +2,8 @@
 * check to see S3 expired files are deleted: yes
 * set MySQL binary log retention hours
 * connect to MySQL database in MySQL Workbench
-* mysql -h cdcstack-rdsservicerdstocdctoredshiftf398d7a0-gvhlj93xg4n.c6ivt0xhpth.us-east-1.rds.amazonaws.com -u admin -ppassword
+* mysql -h cdcstack-rdsservicerdstocdctoredshiftf398d7a0-gvhlj93xg4n.c6ivt0xhpth.us-east-1.rds.amazonaws.com -u admin -p
+* can connect with Redshift cluster with psycopg2
 
 * It's possible to create the table 1 time for Redshift and RDS.
 * Redshift can copy directly from DynamoDB table
