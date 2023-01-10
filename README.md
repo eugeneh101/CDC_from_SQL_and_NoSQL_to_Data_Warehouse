@@ -3,6 +3,8 @@
 * set MySQL binary log retention hours
 * connect to MySQL database in MySQL Workbench
 * mysql -h cdcstack-rdsservicerdstocdctoredshiftf398d7a0-gvhlj93xg4n.c6ivt0xhpth.us-east-1.rds.amazonaws.com -u admin -p
+    * mysql> call mysql.rds_show_configuration;
+    * mysql> call mysql.rds_set_configuration("binlog retention hours", 24);
 * can connect with Redshift cluster with psycopg2
 
 * It's possible to create the table 1 time for Redshift and RDS.
