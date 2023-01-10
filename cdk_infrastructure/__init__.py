@@ -526,7 +526,7 @@ class CDCStack(Stack):
             "DynamodbTableName",  # Output omits underscores and hyphens
             value=self.dynamodb_service.dynamodb_table.table_name,
         )
-        self.output_dynamodb_table_name = CfnOutput(
+        self.output_s3_bucket_for_dynamodb_stream_to_redshift = CfnOutput(
             self,
             "S3BucketForDynamodbStreamToRedshift",  # Output omits underscores and hyphens
             value=self.dynamodb_service.s3_bucket_for_cdc_from_dynamodb_to_redshift.bucket_name,
