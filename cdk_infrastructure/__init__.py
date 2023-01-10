@@ -2,6 +2,7 @@ import json
 
 from aws_cdk import (
     BundlingOptions,
+    CfnOutput,
     Duration,
     RemovalPolicy,
     SecretValue,
@@ -68,7 +69,7 @@ class RDSService(Construct):
         super().__init__(scope, construct_id)  # required
         self.rds_instance = rds.DatabaseInstance(
             self,
-            "RDSToCDCToRedshift",
+            "RDSForCDCToRedshift",
             engine=rds.DatabaseInstanceEngine.mysql(
                 version=rds.MysqlEngineVersion.VER_8_0_28
             ),
@@ -91,7 +92,7 @@ class RDSService(Construct):
                 "binlog_row_image": "full",
                 "binlog_checksum": "NONE",
                 ### eventually set binlog retention hours with CustomResource
-                },
+            },
             publicly_accessible=True,  ### will have to figure out VPC
             removal_policy=RemovalPolicy.DESTROY,
             delete_automated_backups=True,
@@ -173,6 +174,7 @@ class CDCFromRDSToRedshiftService(Construct):
             "DMSReplicationInstance",
             replication_instance_class="dms.t3.micro",  # for demo purposes
             vpc_security_group_ids=[security_group_id],
+            publicly_accessible=False,
         )
         self.dms_replication_task = dms.CfnReplicationTask(
             self,
@@ -202,19 +204,23 @@ class CDCFromRDSToRedshiftService(Construct):
         )
 
         env_vars = {
-            "PRINT_RDS_AND_REDSHIFT_NUM_ROWS": json.dumps(environment["PRINT_RDS_AND_REDSHIFT_NUM_ROWS"])
+            "PRINT_RDS_AND_REDSHIFT_NUM_ROWS": json.dumps(
+                environment["PRINT_RDS_AND_REDSHIFT_NUM_ROWS"]
+            )
         }
         if environment["PRINT_RDS_AND_REDSHIFT_NUM_ROWS"]:
-             env_vars.update({
-                "RDS_HOST": rds_endpoint_address,
-                "RDS_USER": environment["RDS_USER"],
-                "RDS_PASSWORD": environment["RDS_PASSWORD"],
-                "RDS_DATABASE_NAME": environment["RDS_DATABASE_NAME"],
-                "RDS_TABLE_NAME": environment["RDS_TABLE_NAME"],
-                "REDSHIFT_ENDPOINT_ADDRESS": redshift_endpoint_address,
-                "REDSHIFT_USER": environment["REDSHIFT_USER"],
-                "REDSHIFT_DATABASE_NAME": environment["REDSHIFT_DATABASE_NAME"],
-            })
+            env_vars.update(
+                {
+                    "RDS_HOST": rds_endpoint_address,
+                    "RDS_USER": environment["RDS_USER"],
+                    "RDS_PASSWORD": environment["RDS_PASSWORD"],
+                    "RDS_DATABASE_NAME": environment["RDS_DATABASE_NAME"],
+                    "RDS_TABLE_NAME": environment["RDS_TABLE_NAME"],
+                    "REDSHIFT_ENDPOINT_ADDRESS": redshift_endpoint_address,
+                    "REDSHIFT_USER": environment["REDSHIFT_USER"],
+                    "REDSHIFT_DATABASE_NAME": environment["REDSHIFT_DATABASE_NAME"],
+                }
+            )
         self.start_dms_replication_task_lambda = _lambda.Function(
             self,
             "StartDMSReplicationTaskLambda",
@@ -277,7 +283,7 @@ class DynamoDBService(Construct):
         super().__init__(scope, construct_id)  # required
         self.dynamodb_table = dynamodb.Table(
             self,
-            "DynamoDBTableToCDCToRedshift",
+            "DynamoDBTableForCDCToRedshift",
             partition_key=dynamodb.Attribute(
                 name="id", type=dynamodb.AttributeType.STRING
             ),
@@ -286,7 +292,7 @@ class DynamoDBService(Construct):
             # (as DynamoDB is a stateful resource) unless explicitly specified by the following line
             removal_policy=RemovalPolicy.DESTROY,
         )
-        self.cdc_from_dynamodb_to_redshift_s3_bucket = s3.Bucket(
+        self.s3_bucket_for_cdc_from_dynamodb_to_redshift = s3.Bucket(
             self,
             "DynamoDBStreamToRedshiftS3Bucket",
             removal_policy=RemovalPolicy.DESTROY,
@@ -327,7 +333,9 @@ class DynamoDBService(Construct):
             memory_size=128,  # in MB
             environment={  # apparently "AWS_REGION" is not allowed as a Lambda env variable
                 "AWSREGION": environment["AWS_REGION"],
-                "UNPROCESSED_DYNAMODB_STREAM_FOLDER": environment["UNPROCESSED_DYNAMODB_STREAM_FOLDER"],
+                "UNPROCESSED_DYNAMODB_STREAM_FOLDER": environment[
+                    "UNPROCESSED_DYNAMODB_STREAM_FOLDER"
+                ],
             },
         )
 
@@ -338,7 +346,7 @@ class DynamoDBService(Construct):
         self.dynamodb_table.grant_write_data(self.load_data_to_dynamodb_lambda)
         self.write_dynamodb_stream_to_s3_lambda.add_environment(
             key="S3_BUCKET_FOR_DYNAMODB_STREAM_TO_REDSHIFT",
-            value=self.cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
+            value=self.s3_bucket_for_cdc_from_dynamodb_to_redshift.bucket_name,
         )
         self.write_dynamodb_stream_to_s3_lambda.add_event_source(
             event_sources.DynamoEventSource(
@@ -349,7 +357,7 @@ class DynamoDBService(Construct):
                 # filters=[{"event_name": _lambda.FilterRule.is_equal("INSERT")}]
             )
         )
-        self.cdc_from_dynamodb_to_redshift_s3_bucket.grant_write(
+        self.s3_bucket_for_cdc_from_dynamodb_to_redshift.grant_write(
             self.write_dynamodb_stream_to_s3_lambda
         )
 
@@ -360,7 +368,7 @@ class CDCFromDynamoDBToRedshiftService(Construct):
         scope: Construct,
         construct_id: str,
         environment: dict,
-        cdc_from_dynamodb_to_redshift_s3_bucket: s3.Bucket,
+        s3_bucket_for_cdc_from_dynamodb_to_redshift: s3.Bucket,
         redshift_endpoint_address: str,
         redshift_role_arn: str,
     ) -> None:
@@ -392,20 +400,28 @@ class CDCFromDynamoDBToRedshiftService(Construct):
             environment={
                 "REDSHIFT_USER": environment["REDSHIFT_USER"],
                 "REDSHIFT_DATABASE_NAME": environment["REDSHIFT_DATABASE_NAME"],
-                "REDSHIFT_SCHEMA_NAME_FOR_DYNAMODB_CDC": environment["REDSHIFT_SCHEMA_NAME_FOR_DYNAMODB_CDC"],
-                "REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC": environment["REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC"],
+                "REDSHIFT_SCHEMA_NAME_FOR_DYNAMODB_CDC": environment[
+                    "REDSHIFT_SCHEMA_NAME_FOR_DYNAMODB_CDC"
+                ],
+                "REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC": environment[
+                    "REDSHIFT_TABLE_NAME_FOR_DYNAMODB_CDC"
+                ],
                 "AWSREGION": environment[
                     "AWS_REGION"
                 ],  # apparently "AWS_REGION" is not allowed as a Lambda env variable
-                "UNPROCESSED_DYNAMODB_STREAM_FOLDER": environment["UNPROCESSED_DYNAMODB_STREAM_FOLDER"],
-                "PROCESSED_DYNAMODB_STREAM_FOLDER": environment["PROCESSED_DYNAMODB_STREAM_FOLDER"],
+                "UNPROCESSED_DYNAMODB_STREAM_FOLDER": environment[
+                    "UNPROCESSED_DYNAMODB_STREAM_FOLDER"
+                ],
+                "PROCESSED_DYNAMODB_STREAM_FOLDER": environment[
+                    "PROCESSED_DYNAMODB_STREAM_FOLDER"
+                ],
             },
             role=self.lambda_redshift_full_access_role,
         )
 
         # connect the AWS resources
         lambda_environment_variables = {
-            "S3_BUCKET_FOR_DYNAMODB_STREAM_TO_REDSHIFT": cdc_from_dynamodb_to_redshift_s3_bucket.bucket_name,
+            "S3_BUCKET_FOR_DYNAMODB_STREAM_TO_REDSHIFT": s3_bucket_for_cdc_from_dynamodb_to_redshift.bucket_name,
             "REDSHIFT_ENDPOINT_ADDRESS": redshift_endpoint_address,
             "REDSHIFT_ROLE_ARN": redshift_role_arn,
         }
@@ -413,7 +429,7 @@ class CDCFromDynamoDBToRedshiftService(Construct):
             self.load_s3_files_from_dynamodb_stream_to_redshift_lambda.add_environment(
                 key=key, value=value
             )
-        cdc_from_dynamodb_to_redshift_s3_bucket.grant_read_write(
+        s3_bucket_for_cdc_from_dynamodb_to_redshift.grant_read_write(
             self.load_s3_files_from_dynamodb_stream_to_redshift_lambda
         )
 
@@ -467,8 +483,8 @@ class CDCStack(Stack):
             self,
             "CDCFromDynamoDBToRedshiftService",
             environment=environment,
-            cdc_from_dynamodb_to_redshift_s3_bucket=self.dynamodb_service.cdc_from_dynamodb_to_redshift_s3_bucket,
-            redshift_endpoint_address=self.redshift_service.redshift_cluster.attr_endpoint_address,  # appears redshift_cluster.attr_id is broken,
+            s3_bucket_for_cdc_from_dynamodb_to_redshift=self.dynamodb_service.s3_bucket_for_cdc_from_dynamodb_to_redshift,
+            redshift_endpoint_address=self.redshift_service.redshift_cluster.attr_endpoint_address,
             redshift_role_arn=self.redshift_service.redshift_full_commands_full_access_role.role_arn,
         )
 
@@ -493,3 +509,20 @@ class CDCStack(Stack):
                     ### then put in DLQ
                 ),
             )
+
+        # write Cloudformation Outputs
+        self.output_redshift_endpoint_address = CfnOutput(
+            self,
+            "RedshiftEndpointAddress",  # Output omits underscores and hyphens
+            value=self.redshift_service.redshift_cluster.attr_endpoint_address,
+        )
+        self.output_rds_endpoint_address = CfnOutput(
+            self,
+            "RdsEndpointAddress",  # Output omits underscores and hyphens
+            value=self.rds_service.rds_instance.db_instance_endpoint_address,
+        )
+        self.output_dynamodb_table_name = CfnOutput(
+            self,
+            "DynamoDBTableName",  # Output omits underscores and hyphens
+            value=self.dynamodb_service.dynamodb_table.table_name,
+        )
