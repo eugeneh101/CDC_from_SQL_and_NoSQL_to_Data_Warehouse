@@ -27,7 +27,8 @@ For observability, you can inspect the Lambda's Cloudwatch logs: runtime duratio
     * 1 DMS replication task
     * 1 S3 bucket
     * other miscellaneous AWS resources
-* Redshift table should match RDS table exactly within seconds due to DMS migration task. However Redshift table will not match DynamoDB table exactly in the case that you delete records from DynamoDB table; determine what to do with deleted DynamoDB records if they need to also deleted from Redshift table.
+* Redshift table should match **RDS** table exactly within seconds due to DMS migration task. However Redshift table will not match **DynamoDB** table exactly in the case that you delete records from DynamoDB table; determine what to do with deleted DynamoDB records if they need to also deleted from Redshift table.
+* Useful (dynamically-created) details are displayed in Cloudformation Outputs: Redshift endpoint, RDS endpoint, DynamoDB table name, S3 bucket name.
 * If you delete this Cloudformation stack, then it will delete all the AWS resources including stateful resources such as RDS instance, DynamoDB table, Redshft cluster, S3 bucket. You can change the `removal_policy` of the AWS resources if you want them retained instead of deleted.
 * If you delete this stack, first manually stop the DMS migration task; otherwise the stack will not fully delete, ie some AWS resources will remain undeleted.
 
