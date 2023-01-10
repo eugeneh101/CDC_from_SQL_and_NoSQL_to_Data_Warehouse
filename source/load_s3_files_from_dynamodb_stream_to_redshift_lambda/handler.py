@@ -12,6 +12,7 @@ UNPROCESSED_DYNAMODB_STREAM_FOLDER = os.environ["UNPROCESSED_DYNAMODB_STREAM_FOL
 PROCESSED_DYNAMODB_STREAM_FOLDER = os.environ["PROCESSED_DYNAMODB_STREAM_FOLDER"]
 
 redshift_data_client = boto3.client("redshift-data")
+# aws_redshift.CfnCluster(...).attr_id (for cluster name) is broken, so using endpoint address instead
 REDSHIFT_CLUSTER_NAME = os.environ["REDSHIFT_ENDPOINT_ADDRESS"].split(".")[0]
 REDSHIFT_ROLE_ARN = os.environ["REDSHIFT_ROLE_ARN"]
 REDSHIFT_USER = os.environ["REDSHIFT_USER"]
