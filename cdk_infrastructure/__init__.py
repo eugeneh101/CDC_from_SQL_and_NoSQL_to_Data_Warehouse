@@ -17,6 +17,7 @@ from aws_cdk import (
     aws_lambda_event_sources as event_sources,
     aws_rds as rds,
     aws_redshift as redshift,
+    aws_redshiftserverless as redshift_serverless,
     aws_s3 as s3,
 )
 from constructs import Construct
@@ -55,6 +56,35 @@ class RedshiftService(Construct):
             vpc_security_group_ids=[security_group.security_group_id],
             publicly_accessible=False,
         )
+
+        self.redshift_namespace = redshift_serverless.CfnNamespace(  # storage
+            self,
+            "RedshiftNamespace",
+            namespace_name="default-namespace",  # appears required
+            admin_username=environment["REDSHIFT_USER"],
+            admin_user_password=environment["REDSHIFT_PASSWORD"],
+            db_name=environment["REDSHIFT_DATABASE_NAME"],
+            iam_roles=[self.redshift_full_commands_full_access_role.role_arn],
+            # default_iam_role_arn=self.redshift_full_commands_full_access_role.role_arn,
+            # namespace=None,
+        )
+        self.redshift_workgroup = redshift_serverless.CfnWorkgroup(
+            self,
+            "RedshiftWorkgroup",
+            workgroup_name="default-workgroup",  # appears required
+            namespace_name=self.redshift_namespace.namespace_name,
+            base_capacity=128,  # RPUs for Redshift Serverless compute + pricing
+            publicly_accessible=True,  ### change to False later
+            security_group_ids=[security_group.security_group_id],
+            # subnet_ids=None,
+            # workgroup=None,
+        )
+        # make sure namespace is created before workgroup
+        self.redshift_workgroup.node.add_dependency(self.redshift_namespace)
+        ### * turns out DMS does not support Redshift Serverless, so can't do CDC
+        ### * appears boto3 "redshift-data" client does not support Redshift Serverless since
+        ###   DDL/DML statements does not work (due to authorization), so use psycopg2 instead
+        ### * appears that Redshift Serverless is not supported by AWS DMS for CDC
 
 
 class RDSService(Construct):
