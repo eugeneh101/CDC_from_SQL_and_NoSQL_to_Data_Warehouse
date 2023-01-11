@@ -81,6 +81,7 @@ class RedshiftService(Construct):
         )
         # make sure namespace is created before workgroup
         self.redshift_workgroup.node.add_dependency(self.redshift_namespace)
+        ### * Redshift Serverless needs at least 3 subnets
         ### * turns out DMS does not support Redshift Serverless, so can't do CDC
         ### * appears boto3 "redshift-data" client does not support Redshift Serverless since
         ###   DDL/DML statements does not work (due to authorization), so use psycopg2 instead
